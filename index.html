@@ -4,160 +4,210 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <title>Neon Tiles Anthology</title>
+    <title>Neon Velocity 10</title>
     <style>
         :root { --neon: #ff2d55; }
         body {
             margin:0; overflow:hidden; background:#000;
-            font-family: -apple-system, system-ui;
-            touch-action:none; user-select:none; -webkit-user-select:none;
+            font-family: -apple-system, system-ui, sans-serif;
+            touch-action:none; user-select:none; -webkit-user-select:none; color: white;
         }
-        canvas { position:fixed; width:100vw; height:100vh; }
+        canvas { position:fixed; width:100vw; height:100vh; z-index: 1; }
         
+        /* UI Layers */
         #ui {
-            position:absolute; top:40px; width:100%; text-align:center;
-            color:#fff; z-index:10; pointer-events:none;
+            position:absolute; top:50px; width:100%; text-align:center;
+            z-index:10; pointer-events:none;
         }
-        #score { font-size: 40px; font-weight:900; }
+        #score { font-size: 50px; font-weight:900; text-shadow: 0 0 15px var(--neon); }
 
-        #menu, #countdown {
+        #menu {
             position:absolute; inset:0; display:flex; flex-direction:column;
-            align-items:center; justify-content:center; background:rgba(0,0,0,0.95);
-            color:#fff; z-index:20; text-align:center;
+            background:#000; z-index:20; overflow-y: auto; padding: 40px 20px;
         }
-        
-        #countdown { font-size:100px; display:none; background:rgba(0,0,0,0.8); }
 
-        .btn-group { display: flex; flex-direction: column; gap: 15px; margin-top: 20px; }
-        
-        button {
-            padding:15px 40px; font-size:18px; border:none; border-radius:12px;
-            background: #222; color:white; font-weight:bold;
-            border: 2px solid var(--neon); transition: 0.2s;
+        #countdown {
+            position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+            background:rgba(0,0,0,0.8); font-size:120px; font-weight:900; z-index:30;
         }
-        button:active { background: var(--neon); transform: scale(0.95); }
 
-        .desc { font-size: 12px; opacity: 0.6; margin-top: 5px; }
+        h1 { text-align: center; font-size: 28px; margin-bottom: 20px; color: var(--neon); }
+
+        /* Grid for 10 Scenarios */
+        .grid {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+            max-width: 500px; margin: 0 auto;
+        }
+
+        .scenario-btn {
+            padding: 15px 10px; border-radius: 12px; border: 1px solid #333;
+            background: #111; color: white; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; gap: 5px; transition: 0.2s;
+        }
+        .scenario-btn:active { transform: scale(0.95); background: var(--neon); }
+        .scenario-btn span { font-size: 14px; font-weight: bold; text-transform: uppercase; }
+        .scenario-btn small { font-size: 10px; opacity: 0.6; }
+
+        .ios-notice { font-size: 11px; text-align: center; margin-top: 20px; opacity: 0.5; }
     </style>
 </head>
 <body>
 
-<div id="ui">
-    <div id="score">0</div>
-</div>
-
+<div id="ui"><div id="score">0</div></div>
 <div id="countdown">3</div>
-
 <canvas id="game"></canvas>
 
 <div id="menu">
-    <h1>NEON TILES</h1>
-    <p>Choisissez votre scénario :</p>
-    
-    <div class="btn-group">
-        <button onclick="setupGame('sunset')">1. NEON SUNSET
-            <div class="desc">Synthwave - Normal</div>
-        </button>
-        <button onclick="setupGame('lofi')" style="border-color: #00f2ff;">2. MIDNIGHT LO-FI
-            <div class="desc">Chill - Facile</div>
-        </button>
-        <button onclick="setupGame('cyber')" style="border-color: #7cfc00;">3. CYBER GLITCH
-            <div class="desc">Techno - Difficile</div>
-        </button>
-    </div>
+    <h1>NEON VELOCITY</h1>
+    <div class="grid" id="grid"></div>
+    <p class="ios-notice">Vibrations et sons activés en mode normal (pas silencieux).</p>
 </div>
-
-<audio id="musicPlayer" loop crossorigin="anonymous"></audio>
 
 <script>
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
-const music = document.getElementById("musicPlayer");
 const scoreEl = document.getElementById("score");
+const menu = document.getElementById("menu");
+const countdownEl = document.getElementById("countdown");
 
 let tiles = [], score = 0, isPlaying = false;
-let speed = 4, accel = 0.001, hue = 0;
+let speed = 4, accel = 0.001, hue = 0, waveType = 'sine';
 let laneWidth, tileH;
+let audioCtx = null;
 
-const scenarios = {
-    sunset: { url: "https://cdn.pixabay.com/download/audio/2022/10/25/audio_7a1c1c0c7d.mp3", speed: 4.5, accel: 0.0012, color: 330 },
-    lofi: { url: "https://www.chosic.com/wp-content/uploads/2021/07/Rainy-Day-Chill-Lofi.mp3", speed: 3, accel: 0.0005, color: 220 },
-    cyber: { url: "https://www.chosic.com/wp-content/uploads/2021/04/Electronic-Future-Beat.mp3", speed: 6, accel: 0.002, color: 120 }
-};
+// --- CONFIGURATION DES 10 SCÉNARIOS ---
+const scenarios = [
+    { name: "Classic", start: 4.5, accel: 0.0015, wave: 'sine', color: 340, desc: "Équilibré" },
+    { name: "Turbo", start: 7, accel: 0.001, wave: 'triangle', color: 200, desc: "Rapide d'entrée" },
+    { name: "Exponential", start: 3, accel: 0.004, wave: 'sawtooth', color: 30, desc: "Accélération folle" },
+    { name: "8-Bit", start: 5, accel: 0.002, wave: 'square', color: 80, desc: "Retro Hard" },
+    { name: "Cyber", start: 6, accel: 0.0025, wave: 'sawtooth', color: 160, desc: "Vitesse Matrix" },
+    { name: "Zen", start: 2.5, accel: 0.0008, wave: 'sine', color: 220, desc: "Progressif" },
+    { name: "Overdrive", start: 8, accel: 0.003, wave: 'square', color: 0, desc: "Maximum Danger" },
+    { name: "Glitch", start: 5.5, accel: 0.005, wave: 'sawtooth', color: 280, desc: "Imprévisible" },
+    { name: "Deep", start: 4, accel: 0.001, wave: 'triangle', color: 250, desc: "Basses intenses" },
+    { name: "Velocity", start: 9, accel: 0.001, wave: 'sine', color: 190, desc: "Vitesse Pure" }
+];
 
+function init() {
+    const grid = document.getElementById("grid");
+    scenarios.forEach((s, i) => {
+        const btn = document.createElement("div");
+        btn.className = "scenario-btn";
+        btn.style.borderColor = `hsl(${s.color}, 100%, 50%)`;
+        btn.innerHTML = `<span>${s.name}</span><small>${s.desc}</small>`;
+        btn.onclick = (e) => startSetup(i);
+        btn.ontouchend = (e) => { e.preventDefault(); startSetup(i); };
+        grid.appendChild(btn);
+    });
+}
+
+// --- SYSTÈME AUDIO (Génération temps réel) ---
+function setupAudio() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+function playTileSound(lane) {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    
+    // Notes : Gamme Pentatonique (C4, D4, E4, G4)
+    const notes = [261.63, 293.66, 329.63, 392.00];
+    
+    osc.type = waveType;
+    osc.frequency.setValueAtTime(notes[lane], audioCtx.currentTime);
+    
+    // Enveloppe sonore
+    gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+    
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.3);
+}
+
+// --- LOGIQUE DU JEU ---
 function resize() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
     laneWidth = canvas.width / 4;
-    tileH = canvas.height / 4.5;
+    tileH = canvas.height / 4.2;
 }
 window.addEventListener("resize", resize);
 resize();
 
-function setupGame(type) {
-    const s = scenarios[type];
-    music.src = s.url;
-    speed = s.speed;
+function startSetup(index) {
+    setupAudio();
+    const s = scenarios[index];
+    speed = s.start;
     accel = s.accel;
+    waveType = s.wave;
     hue = s.color;
     
-    // iPhone Audio Unlock
-    music.play().then(() => music.pause()); 
-    
-    document.getElementById("menu").style.display = "none";
+    menu.style.display = "none";
     score = 0;
     scoreEl.innerText = score;
+    tiles = [];
+    
     startCountdown();
 }
 
 function startCountdown() {
-    const cd = document.getElementById("countdown");
-    cd.style.display = "flex";
+    countdownEl.style.display = "flex";
     let count = 3;
-    cd.innerText = count;
-
+    countdownEl.innerText = count;
     let timer = setInterval(() => {
         count--;
-        if(count > 0) cd.innerText = count;
-        else if(count === 0) cd.innerText = "GO!";
+        if(count > 0) countdownEl.innerText = count;
+        else if(count === 0) countdownEl.innerText = "GO!";
         else {
             clearInterval(timer);
-            cd.style.display = "none";
+            countdownEl.style.display = "none";
             isPlaying = true;
-            music.play();
             for(let i=0; i<5; i++) spawnTile(-i * tileH);
             loop();
         }
     }, 700);
 }
 
-function spawnTile(yPos) {
-    tiles.push({ lane: Math.floor(Math.random()*4), y: yPos, tapped: false });
+function spawnTile(y) {
+    tiles.push({ lane: Math.floor(Math.random()*4), y: y, tapped: false });
 }
 
 window.addEventListener("touchstart", e => {
     if(!isPlaying) return;
     const x = e.touches[0].clientX;
     const lane = Math.floor(x / laneWidth);
-    let activeTiles = tiles.filter(t => !t.tapped).sort((a,b) => b.y - a.y);
-    let target = activeTiles[0];
+    
+    let active = tiles.filter(t => !t.tapped).sort((a,b) => b.y - a.y);
+    let target = active[0];
 
-    if(target && lane === target.lane && target.y + tileH > -50) {
+    if(target && lane === target.lane && target.y + tileH > 0) {
         target.tapped = true;
         score++;
         scoreEl.innerText = score;
+        playTileSound(lane); // Son généré ici
     } else {
         gameOver();
     }
-});
+}, {passive: false});
 
 function loop() {
     if(!isPlaying) return;
-    ctx.fillStyle = "rgba(0,0,0,0.2)";
+    
+    ctx.fillStyle = "rgba(0,0,0,0.25)";
     ctx.fillRect(0,0,canvas.width, canvas.height);
 
-    speed += accel; // Accélération propre au scénario
+    speed += accel; 
+    let currentC = `hsl(${hue}, 100%, 60%)`;
 
+    // Colonnes
     ctx.strokeStyle = "rgba(255,255,255,0.05)";
     for(let i=1; i<4; i++) {
         ctx.beginPath(); ctx.moveTo(i*laneWidth, 0); ctx.lineTo(i*laneWidth, canvas.height); ctx.stroke();
@@ -168,8 +218,10 @@ function loop() {
         t.y += speed;
 
         if(!t.tapped) {
-            ctx.fillStyle = `hsl(${hue}, 100%, 60%)`;
-            ctx.fillRect(t.lane * laneWidth + 5, t.y, laneWidth - 10, tileH - 10);
+            ctx.fillStyle = currentC;
+            ctx.shadowBlur = 15; ctx.shadowColor = currentC;
+            ctx.fillRect(t.lane * laneWidth + 4, t.y, laneWidth - 8, tileH - 8);
+            ctx.shadowBlur = 0;
         }
 
         if(!t.tapped && t.y > canvas.height) {
@@ -186,10 +238,11 @@ function loop() {
 
 function gameOver() {
     isPlaying = false;
-    music.pause();
-    document.getElementById("menu").style.display = "flex";
+    menu.style.display = "flex";
     document.querySelector("h1").innerText = "SCORE : " + score;
 }
+
+init();
 </script>
 </body>
 </html>
