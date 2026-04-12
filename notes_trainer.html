@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Notes Trainer</title>
+<style>
+body { margin:0; overflow:hidden; background:#000; touch-action:none; }
+canvas { position:fixed; width:100vw; height:100vh; }
+#ui {
+  position:absolute;
+  top:20px;
+  width:100%;
+  text-align:center;
+  color:#ff4757;
+  font-size:50px;
+  font-weight:bold;
+}
+#startScreen {
+  position:absolute;
+  inset:0;
+  background:#000;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-direction:column;
+  color:#fff;
+}
+button {
+  padding:15px 40px;
+  font-size:22px;
+  border-radius:10px;
+  border:none;
+  background:#ff4757;
+  color:#fff;
+}
+</style>
+</head>
+<body>
+
+<div id="ui"><span id="score">0</span></div>
+<canvas id="game"></canvas>
+
+<div id="startScreen">
+  <h1>Notes Trainer</h1>
+  <button id="startBtn">Start</button>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let tiles=[], score=0, speed=0, laneWidth, isPlaying=false;
+const tileHeight = 180;
+
+let audioCtx;
+function initAudio(){
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+function playNote(lane){
+  if(!audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  const notes = [261.6, 329.6, 392, 523.2];
+  osc.frequency.value = notes[lane];
+  gain.gain.value = 0.3;
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start();
+  osc.stop(audioCtx.currentTime + 0.15);
+}
+
+function resize(){
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  laneWidth = canvas.width/4;
+}
+window.addEventListener("resize", resize);
+resize();
+
+document.getElementById("startBtn").addEventListener("touchstart", e=>{
+  e.preventDefault();
+  initAudio();
+  audioCtx.resume();
+  document.getElementById("startScreen").style.display="none";
+  startGame();
+});
+
+window.addEventListener("touchstart", e=>{
+  e.preventDefault();
+  if(!isPlaying) return;
+
+  let x = e.touches[0].clientX;
+  let lane = Math.floor(x/laneWidth);
+
+  let available = tiles.filter(t=>!t.tapped);
+  let lowest = available.reduce((a,b)=> a.y>b.y?a:b);
+
+  if(lowest){
+    if(lane === lowest.lane){
+      lowest.tapped = true;
+      score++;
+      document.getElementById("score").innerText = score;
+      playNote(lane);
+      if(speed===0) speed=6;
+      speed += 0.1;
+    } else {
+      gameOver();
+    }
+  }
+});
+
+function startGame(){
+  score=0; speed=0; tiles=[];
+  document.getElementById("score").innerText=0;
+
+  for(let i=0;i<6;i++){
+    tiles.push({
+      lane:Math.floor(Math.random()*4),
+      y:canvas.height - (i*tileHeight),
+      tapped:false
+    });
+  }
+
+  isPlaying=true;
+  loop();
+}
+
+function loop(){
+  if(!isPlaying) return;
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  for(let i=1;i<4;i++){
+    ctx.beginPath();
+    ctx.moveTo(i*laneWidth,0);
+    ctx.lineTo(i*laneWidth,canvas.height);
+    ctx.strokeStyle="#333";
+    ctx.stroke();
+  }
+
+  for(let t of tiles){
+    t.y += speed;
+    ctx.fillStyle = t.tapped ? "#444" : "#fff";
+    ctx.fillRect(t.lane*laneWidth,t.y,laneWidth,tileHeight);
+
+    if(!t.tapped && t.y > canvas.height){
+      gameOver();
+      return;
+    }
+  }
+
+  if(tiles[0].y > canvas.height){
+    tiles.shift();
+    let top = tiles[tiles.length-1].y;
+    tiles.push({
+      lane:Math.floor(Math.random()*4),
+      y:top - tileHeight,
+      tapped:false
+    });
+  }
+
+  requestAnimationFrame(loop);
+}
+
+function gameOver(){
+  isPlaying=false;
+  document.getElementById("startScreen").style.display="flex";
+}
+</script>
+
+</body>
+</html>
