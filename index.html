@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <title>Neon Rhythm Pro</title>
+    <title>Neon Rhythm Fixed</title>
     <style>
         :root { --neon: #ff2d55; }
         body {
@@ -18,20 +18,21 @@
             color:#fff; z-index:10; pointer-events:none;
         }
         #score { font-size: 50px; font-weight:900; text-shadow: 0 0 10px var(--neon); }
-        #best { font-size: 14px; opacity: 0.8; letter-spacing:1px; }
+        #best { font-size: 14px; opacity: 0.8; }
 
         #startScreen, #countdown {
             position:absolute; inset:0; display:flex; flex-direction:column;
-            align-items:center; justify-content:center; background:rgba(0,0,0,0.9);
-            color:#fff; z-index:20;
+            align-items:center; justify-content:center; background:rgba(0,0,0,0.95);
+            color:#fff; z-index:20; text-align:center; padding: 20px;
         }
-        #countdown { background:rgba(0,0,0,0.6); font-size:100px; display:none; }
+        #countdown { background:rgba(0,0,0,0.7); font-size:100px; display:none; }
         
         button {
             padding:20px 50px; font-size:24px; border:none; border-radius:50px;
             background:var(--neon); color:white; font-weight:bold;
             box-shadow: 0 0 20px var(--neon);
         }
+        .ios-hint { margin-top: 20px; font-size: 12px; opacity: 0.6; }
     </style>
 </head>
 <body>
@@ -42,13 +43,13 @@
 </div>
 
 <div id="countdown">3</div>
-
 <canvas id="game"></canvas>
 
 <div id="startScreen">
-    <h1 style="margin-bottom:10px">NEON TILES</h1>
-    <p style="margin-bottom:30px; opacity:0.7">Suivez le rythme...</p>
+    <h1>NEON TILES</h1>
+    <p>Touchez les tuiles pour créer la musique</p>
     <button id="startBtn">JOUER</button>
+    <p class="ios-hint">Vérifiez que le mode <b>Silencieux</b> de votre iPhone est désactivé.</p>
 </div>
 
 <script>
@@ -60,9 +61,9 @@ const bestEl = document.getElementById("best");
 let tiles = [], score = 0, isPlaying = false;
 let speed = 4, hue = 0;
 let laneWidth, tileH;
-let audioCtx;
+let audioCtx = null;
 
-// Charger le meilleur score au démarrage
+// Record
 let highScore = localStorage.getItem("neonBest") || 0;
 bestEl.innerText = "RECORD: " + highScore;
 
@@ -75,48 +76,60 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
-// 🎹 Synthétiseur pour iPhone (Web Audio API)
-function initAudio() {
+// --- LOGIQUE AUDIO IPHONE ---
+function unlockAudio() {
     if (!audioCtx) {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     }
+    
+    if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+
+    // Créer un buffer silencieux pour "débloquer" le haut-parleur
+    const buffer = audioCtx.createBuffer(1, 1, 22050);
+    const source = audioCtx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(audioCtx.destination);
+    source.start(0);
 }
 
 function playNote(lane) {
-    if (!audioCtx) return;
+    if (!audioCtx || audioCtx.state !== 'running') return;
+
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     
-    // Fréquences pour les 4 colonnes (gamme de Do majeur : Do, Ré, Mi, Fa)
-    const freqs = [261.63, 293.66, 329.63, 349.23];
+    // Fréquences : Do, Ré, Mi, Sol (Pentatonique, ça sonne toujours bien)
+    const freqs = [261.63, 293.66, 329.63, 392.00];
     
-    osc.type = 'triangle';
+    osc.type = 'sine'; // Son plus doux
     osc.frequency.setValueAtTime(freqs[lane], audioCtx.currentTime);
     
-    gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.5);
+    gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
     
     osc.connect(gain);
     gain.connect(audioCtx.destination);
     
     osc.start();
-    osc.stop(audioCtx.currentTime + 0.5);
+    osc.stop(audioCtx.currentTime + 0.4);
 }
 
-// Interaction START
+// --- INITIALISATION JEU ---
 const startBtn = document.getElementById("startBtn");
-const handleStart = (e) => {
+const init = (e) => {
     e.preventDefault();
-    initAudio(); // Débloque le son sur iOS
-    if(audioCtx.state === 'suspended') audioCtx.resume();
+    unlockAudio(); // CRITIQUE pour iPhone
     
     document.getElementById("startScreen").style.display = "none";
     score = 0; speed = 4; tiles = []; hue = 0;
     scoreEl.innerText = score;
     startCountdown();
 };
-startBtn.addEventListener("touchend", handleStart);
-startBtn.addEventListener("click", handleStart);
+
+startBtn.addEventListener("click", init);
+startBtn.addEventListener("touchend", init);
 
 function startCountdown() {
     const cd = document.getElementById("countdown");
@@ -142,12 +155,14 @@ function spawnTile(yPos) {
     tiles.push({ lane: Math.floor(Math.random()*4), y: yPos, tapped: false });
 }
 
-// 👆 Entrée Tactile
 window.addEventListener("touchstart", e => {
     if(!isPlaying) return;
+    
+    // Re-tenter de resume l'audio si Safari l'a coupé
+    if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+
     const x = e.touches[0].clientX;
     const lane = Math.floor(x / laneWidth);
-
     let activeTiles = tiles.filter(t => !t.tapped).sort((a,b) => b.y - a.y);
     let target = activeTiles[0];
 
@@ -155,7 +170,7 @@ window.addEventListener("touchstart", e => {
         target.tapped = true;
         score++;
         scoreEl.innerText = score;
-        playNote(lane); // Joue la note de la colonne
+        playNote(lane);
     } else {
         gameOver();
     }
@@ -164,18 +179,14 @@ window.addEventListener("touchstart", e => {
 function loop() {
     if(!isPlaying) return;
     
-    // Effet de traînée légère (motion blur)
-    ctx.fillStyle = "rgba(0,0,0,0.3)";
+    ctx.fillStyle = "rgba(0,0,0,0.2)";
     ctx.fillRect(0,0,canvas.width, canvas.height);
 
-    // Accélération graduelle
     speed += 0.0015;
-    // Cycle de couleur graduel
     hue = (hue + 1) % 360;
     let currentColor = `hsl(${hue}, 100%, 60%)`;
 
-    // Dessin des colonnes
-    ctx.strokeStyle = "rgba(255,255,255,0.05)";
+    ctx.strokeStyle = "rgba(255,255,255,0.1)";
     for(let i=1; i<4; i++) {
         ctx.beginPath(); ctx.moveTo(i*laneWidth, 0); ctx.lineTo(i*laneWidth, canvas.height); ctx.stroke();
     }
@@ -188,17 +199,15 @@ function loop() {
             ctx.shadowBlur = 15;
             ctx.shadowColor = currentColor;
             ctx.fillStyle = currentColor;
-            ctx.fillRect(t.lane * laneWidth + 4, t.y, laneWidth - 8, tileH - 8);
+            ctx.fillRect(t.lane * laneWidth + 5, t.y, laneWidth - 10, tileH - 10);
             ctx.shadowBlur = 0;
         }
 
-        // Si raté (passe le bas de l'écran)
         if(!t.tapped && t.y > canvas.height) {
             gameOver(); return;
         }
     }
 
-    // Recyclage des tuiles
     if(tiles.length > 0 && tiles[0].y > canvas.height) {
         tiles.shift();
         spawnTile(tiles[tiles.length-1].y - tileH);
@@ -209,17 +218,13 @@ function loop() {
 
 function gameOver() {
     isPlaying = false;
-    
-    // Sauvegarde du meilleur score
     if(score > highScore) {
         highScore = score;
         localStorage.setItem("neonBest", highScore);
         bestEl.innerText = "RECORD: " + highScore;
     }
-
     document.getElementById("startScreen").style.display = "flex";
     document.querySelector("h1").innerText = "SCORE : " + score;
-    document.querySelector("p").innerText = "Retente ta chance !";
     document.getElementById("startBtn").innerText = "REESAYER";
 }
 </script>
