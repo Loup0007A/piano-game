@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <title>Neon Rhythm Fixed</title>
+    <title>Neon Tiles Anthology</title>
     <style>
         :root { --neon: #ff2d55; }
         body {
@@ -13,59 +13,77 @@
             touch-action:none; user-select:none; -webkit-user-select:none;
         }
         canvas { position:fixed; width:100vw; height:100vh; }
+        
         #ui {
-            position:absolute; top:60px; width:100%; text-align:center;
+            position:absolute; top:40px; width:100%; text-align:center;
             color:#fff; z-index:10; pointer-events:none;
         }
-        #score { font-size: 50px; font-weight:900; text-shadow: 0 0 10px var(--neon); }
-        #best { font-size: 14px; opacity: 0.8; }
+        #score { font-size: 40px; font-weight:900; }
 
-        #startScreen, #countdown {
+        #menu, #countdown {
             position:absolute; inset:0; display:flex; flex-direction:column;
             align-items:center; justify-content:center; background:rgba(0,0,0,0.95);
-            color:#fff; z-index:20; text-align:center; padding: 20px;
+            color:#fff; z-index:20; text-align:center;
         }
-        #countdown { background:rgba(0,0,0,0.7); font-size:100px; display:none; }
+        
+        #countdown { font-size:100px; display:none; background:rgba(0,0,0,0.8); }
+
+        .btn-group { display: flex; flex-direction: column; gap: 15px; margin-top: 20px; }
         
         button {
-            padding:20px 50px; font-size:24px; border:none; border-radius:50px;
-            background:var(--neon); color:white; font-weight:bold;
-            box-shadow: 0 0 20px var(--neon);
+            padding:15px 40px; font-size:18px; border:none; border-radius:12px;
+            background: #222; color:white; font-weight:bold;
+            border: 2px solid var(--neon); transition: 0.2s;
         }
-        .ios-hint { margin-top: 20px; font-size: 12px; opacity: 0.6; }
+        button:active { background: var(--neon); transform: scale(0.95); }
+
+        .desc { font-size: 12px; opacity: 0.6; margin-top: 5px; }
     </style>
 </head>
 <body>
 
 <div id="ui">
-    <div id="best">RECORD: 0</div>
     <div id="score">0</div>
 </div>
 
 <div id="countdown">3</div>
+
 <canvas id="game"></canvas>
 
-<div id="startScreen">
+<div id="menu">
     <h1>NEON TILES</h1>
-    <p>Touchez les tuiles pour créer la musique</p>
-    <button id="startBtn">JOUER</button>
-    <p class="ios-hint">Vérifiez que le mode <b>Silencieux</b> de votre iPhone est désactivé.</p>
+    <p>Choisissez votre scénario :</p>
+    
+    <div class="btn-group">
+        <button onclick="setupGame('sunset')">1. NEON SUNSET
+            <div class="desc">Synthwave - Normal</div>
+        </button>
+        <button onclick="setupGame('lofi')" style="border-color: #00f2ff;">2. MIDNIGHT LO-FI
+            <div class="desc">Chill - Facile</div>
+        </button>
+        <button onclick="setupGame('cyber')" style="border-color: #7cfc00;">3. CYBER GLITCH
+            <div class="desc">Techno - Difficile</div>
+        </button>
+    </div>
 </div>
+
+<audio id="musicPlayer" loop crossorigin="anonymous"></audio>
 
 <script>
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
+const music = document.getElementById("musicPlayer");
 const scoreEl = document.getElementById("score");
-const bestEl = document.getElementById("best");
 
 let tiles = [], score = 0, isPlaying = false;
-let speed = 4, hue = 0;
+let speed = 4, accel = 0.001, hue = 0;
 let laneWidth, tileH;
-let audioCtx = null;
 
-// Record
-let highScore = localStorage.getItem("neonBest") || 0;
-bestEl.innerText = "RECORD: " + highScore;
+const scenarios = {
+    sunset: { url: "https://cdn.pixabay.com/download/audio/2022/10/25/audio_7a1c1c0c7d.mp3", speed: 4.5, accel: 0.0012, color: 330 },
+    lofi: { url: "https://www.chosic.com/wp-content/uploads/2021/07/Rainy-Day-Chill-Lofi.mp3", speed: 3, accel: 0.0005, color: 220 },
+    cyber: { url: "https://www.chosic.com/wp-content/uploads/2021/04/Electronic-Future-Beat.mp3", speed: 6, accel: 0.002, color: 120 }
+};
 
 function resize() {
     canvas.width = window.innerWidth;
@@ -76,60 +94,21 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
-// --- LOGIQUE AUDIO IPHONE ---
-function unlockAudio() {
-    if (!audioCtx) {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    }
+function setupGame(type) {
+    const s = scenarios[type];
+    music.src = s.url;
+    speed = s.speed;
+    accel = s.accel;
+    hue = s.color;
     
-    if (audioCtx.state === 'suspended') {
-        audioCtx.resume();
-    }
-
-    // Créer un buffer silencieux pour "débloquer" le haut-parleur
-    const buffer = audioCtx.createBuffer(1, 1, 22050);
-    const source = audioCtx.createBufferSource();
-    source.buffer = buffer;
-    source.connect(audioCtx.destination);
-    source.start(0);
-}
-
-function playNote(lane) {
-    if (!audioCtx || audioCtx.state !== 'running') return;
-
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
+    // iPhone Audio Unlock
+    music.play().then(() => music.pause()); 
     
-    // Fréquences : Do, Ré, Mi, Sol (Pentatonique, ça sonne toujours bien)
-    const freqs = [261.63, 293.66, 329.63, 392.00];
-    
-    osc.type = 'sine'; // Son plus doux
-    osc.frequency.setValueAtTime(freqs[lane], audioCtx.currentTime);
-    
-    gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
-    
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    
-    osc.start();
-    osc.stop(audioCtx.currentTime + 0.4);
-}
-
-// --- INITIALISATION JEU ---
-const startBtn = document.getElementById("startBtn");
-const init = (e) => {
-    e.preventDefault();
-    unlockAudio(); // CRITIQUE pour iPhone
-    
-    document.getElementById("startScreen").style.display = "none";
-    score = 0; speed = 4; tiles = []; hue = 0;
+    document.getElementById("menu").style.display = "none";
+    score = 0;
     scoreEl.innerText = score;
     startCountdown();
-};
-
-startBtn.addEventListener("click", init);
-startBtn.addEventListener("touchend", init);
+}
 
 function startCountdown() {
     const cd = document.getElementById("countdown");
@@ -145,6 +124,7 @@ function startCountdown() {
             clearInterval(timer);
             cd.style.display = "none";
             isPlaying = true;
+            music.play();
             for(let i=0; i<5; i++) spawnTile(-i * tileH);
             loop();
         }
@@ -157,10 +137,6 @@ function spawnTile(yPos) {
 
 window.addEventListener("touchstart", e => {
     if(!isPlaying) return;
-    
-    // Re-tenter de resume l'audio si Safari l'a coupé
-    if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
-
     const x = e.touches[0].clientX;
     const lane = Math.floor(x / laneWidth);
     let activeTiles = tiles.filter(t => !t.tapped).sort((a,b) => b.y - a.y);
@@ -170,23 +146,19 @@ window.addEventListener("touchstart", e => {
         target.tapped = true;
         score++;
         scoreEl.innerText = score;
-        playNote(lane);
     } else {
         gameOver();
     }
-}, {passive: false});
+});
 
 function loop() {
     if(!isPlaying) return;
-    
     ctx.fillStyle = "rgba(0,0,0,0.2)";
     ctx.fillRect(0,0,canvas.width, canvas.height);
 
-    speed += 0.0015;
-    hue = (hue + 1) % 360;
-    let currentColor = `hsl(${hue}, 100%, 60%)`;
+    speed += accel; // Accélération propre au scénario
 
-    ctx.strokeStyle = "rgba(255,255,255,0.1)";
+    ctx.strokeStyle = "rgba(255,255,255,0.05)";
     for(let i=1; i<4; i++) {
         ctx.beginPath(); ctx.moveTo(i*laneWidth, 0); ctx.lineTo(i*laneWidth, canvas.height); ctx.stroke();
     }
@@ -196,11 +168,8 @@ function loop() {
         t.y += speed;
 
         if(!t.tapped) {
-            ctx.shadowBlur = 15;
-            ctx.shadowColor = currentColor;
-            ctx.fillStyle = currentColor;
+            ctx.fillStyle = `hsl(${hue}, 100%, 60%)`;
             ctx.fillRect(t.lane * laneWidth + 5, t.y, laneWidth - 10, tileH - 10);
-            ctx.shadowBlur = 0;
         }
 
         if(!t.tapped && t.y > canvas.height) {
@@ -212,20 +181,14 @@ function loop() {
         tiles.shift();
         spawnTile(tiles[tiles.length-1].y - tileH);
     }
-
     requestAnimationFrame(loop);
 }
 
 function gameOver() {
     isPlaying = false;
-    if(score > highScore) {
-        highScore = score;
-        localStorage.setItem("neonBest", highScore);
-        bestEl.innerText = "RECORD: " + highScore;
-    }
-    document.getElementById("startScreen").style.display = "flex";
+    music.pause();
+    document.getElementById("menu").style.display = "flex";
     document.querySelector("h1").innerText = "SCORE : " + score;
-    document.getElementById("startBtn").innerText = "REESAYER";
 }
 </script>
 </body>
