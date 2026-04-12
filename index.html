@@ -1,158 +1,257 @@
 <!DOCTYPE html>
-<html>
+<html lang="fr">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<title>Neon Tiles</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Neon Tiles Pro</title>
 
-<style>
-body{margin:0;overflow:hidden;background:#000;font-family:system-ui;touch-action:none;}
-canvas{position:fixed;width:100vw;height:100vh;}
+    <style>
+        :root {
+            --neon-pink: #ff2d55;
+            --neon-blue: #00f2ff;
+        }
+        body {
+            margin: 0; overflow: hidden; background: #000;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            touch-action: none; user-select: none; -webkit-user-select: none;
+        }
+        canvas { position: fixed; width: 100vw; height: 100vh; display: block; }
 
-#ui{
-position:absolute;top:20px;width:100%;text-align:center;
-color:#ff2d55;font-size:48px;font-weight:bold;
-}
+        #ui {
+            position: absolute; top: 50px; width: 100%; text-align: center;
+            color: var(--neon-pink); font-size: 32px; font-weight: 900;
+            pointer-events: none; z-index: 10;
+            text-shadow: 0 0 10px var(--neon-pink);
+        }
 
-#startScreen{
-position:absolute;inset:0;display:flex;flex-direction:column;
-align-items:center;justify-content:center;background:#000;color:#fff;
-}
+        #levelIndicator { font-size: 18px; color: #fff; display: block; }
 
-button{
-padding:14px 30px;font-size:20px;border:none;border-radius:12px;
-background:#ff2d55;color:white;
-}
-</style>
+        #startScreen, #countdownOverlay {
+            position: absolute; inset: 0; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; background: rgba(0,0,0,0.9);
+            color: #fff; z-index: 20;
+        }
+
+        #countdownOverlay { 
+            background: rgba(0,0,0,0.5); font-size: 120px; font-weight: 900; 
+            display: none; color: var(--neon-blue);
+        }
+
+        h1 { font-size: 40px; margin-bottom: 20px; text-shadow: 0 0 20px var(--neon-pink); }
+        
+        button {
+            padding: 18px 40px; font-size: 22px; border: none; border-radius: 50px;
+            background: var(--neon-pink); color: white; font-weight: bold;
+            box-shadow: 0 0 20px var(--neon-pink); transition: 0.2s;
+        }
+        button:active { transform: scale(0.9); opacity: 0.8; }
+    </style>
 </head>
 
 <body>
 
-<div id="ui"><span id="score">0</span></div>
+<div id="ui">
+    <span id="levelIndicator">NIVEAU 1</span>
+    <span id="score">0</span>
+</div>
+
+<div id="countdownOverlay">3</div>
+
 <canvas id="game"></canvas>
 
 <div id="startScreen">
-<h1>Neon Tiles 🎹</h1>
-<button id="startBtn">PLAY</button>
+    <h1>Neon Tiles 🎹</h1>
+    <p>Ne ratez aucune tuile blanche !</p>
+    <button id="startBtn">JOUER</button>
 </div>
 
-<!-- 🎵 MUSIQUE RÉELLE (loop) -->
 <audio id="music" loop>
-  <source src="https://cdn.pixabay.com/download/audio/2022/10/25/audio_7a1c1c0c7d.mp3?filename=arcade-music-loop-125071.mp3" type="audio/mpeg">
+    <source src="https://cdn.pixabay.com/download/audio/2022/10/25/audio_7a1c1c0c7d.mp3?filename=arcade-music-loop-125071.mp3" type="audio/mpeg">
 </audio>
 
 <script>
-const canvas=document.getElementById("game");
-const ctx=canvas.getContext("2d");
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const scoreEl = document.getElementById("score");
+const levelEl = document.getElementById("levelIndicator");
+const startScreen = document.getElementById("startScreen");
+const countdownEl = document.getElementById("countdownOverlay");
+const music = document.getElementById("music");
 
-let tiles=[],score=0,speed=0,laneWidth,isPlaying=false;
-const h=180;
+let tiles = [], score = 0, level = 1, speed = 0, laneWidth, isPlaying = false;
+let tileHeight = 0;
+let currentNeonColor = "#ffffff";
 
-const music=document.getElementById("music");
+// Configurer les niveaux
+const getLevelColor = (lvl) => {
+    const colors = ["#ffffff", "#00f2ff", "#7cfc00", "#ff00ff", "#ffff00"];
+    return colors[(lvl - 1) % colors.length];
+};
 
-// 📱 resize
-function resize(){
-canvas.width=innerWidth;
-canvas.height=innerHeight;
-laneWidth=canvas.width/4;
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    laneWidth = canvas.width / 4;
+    tileHeight = canvas.height / 4.5;
 }
-addEventListener("resize",resize);resize();
+window.addEventListener("resize", resize);
+resize();
 
-// 🎮 START FIX (iPhone safe)
-document.getElementById("startBtn").addEventListener("click",startGame);
-document.getElementById("startBtn").addEventListener("touchend",startGame);
+// 📱 Gestion iOS : Déclenchement sur 'touchend' pour l'audio
+document.getElementById("startBtn").addEventListener("touchend", (e) => {
+    e.preventDefault();
+    initPreGame();
+}, { passive: false });
 
-function startGame(e){
-if(e) e.preventDefault();
+// Fallback pour desktop
+document.getElementById("startBtn").addEventListener("click", initPreGame);
 
-tiles=[];score=0;speed=0;
-document.getElementById("score").innerText=0;
-
-for(let i=0;i<6;i++){
-tiles.push({
-lane:Math.floor(Math.random()*4),
-y:innerHeight-i*h,
-tapped:false
-});
-}
-
-document.getElementById("startScreen").style.display="none";
-
-// 🔊 MUSIQUE START (important iOS)
-music.currentTime=0;
-music.volume=0.5;
-music.play().catch(()=>{});
-
-isPlaying=true;
-loop();
-}
-
-// 👆 input FIX iOS
-addEventListener("touchend",e=>{
-if(!isPlaying)return;
-
-let x=e.changedTouches[0].clientX;
-let lane=Math.floor(x/laneWidth);
-
-let lowest=tiles.filter(t=>!t.tapped).sort((a,b)=>b.y-a.y)[0];
-
-if(!lowest)return;
-
-if(lane===lowest.lane){
-lowest.tapped=true;
-score++;
-document.getElementById("score").innerText=score;
-
-if(speed===0)speed=6;
-speed+=0.09;
-}else{
-gameOver();
-}
-});
-
-function loop(){
-if(!isPlaying)return;
-
-ctx.clearRect(0,0,canvas.width,canvas.height);
-
-for(let i=1;i<4;i++){
-ctx.beginPath();
-ctx.moveTo(i*laneWidth,0);
-ctx.lineTo(i*laneWidth,canvas.height);
-ctx.strokeStyle="#222";
-ctx.stroke();
+function initPreGame() {
+    startScreen.style.display = "none";
+    score = 0;
+    level = 1;
+    speed = 0;
+    tiles = [];
+    currentNeonColor = getLevelColor(1);
+    scoreEl.innerText = score;
+    levelEl.innerText = "NIVEAU 1";
+    
+    // Reset Audio (iOS safe)
+    music.pause();
+    music.currentTime = 0;
+    
+    startCountdown();
 }
 
-for(let t of tiles){
-t.y+=speed;
+function startCountdown() {
+    countdownEl.style.display = "flex";
+    let count = 3;
+    countdownEl.innerText = count;
 
-ctx.fillStyle=t.tapped?"#333":"#fff";
-ctx.fillRect(t.lane*laneWidth,t.y,laneWidth,h);
-
-if(!t.tapped&&t.y>canvas.height){
-gameOver();return;
-}
-}
-
-if(tiles[0].y>canvas.height){
-tiles.shift();
-tiles.push({
-lane:Math.floor(Math.random()*4),
-y:tiles[tiles.length-1].y-h,
-tapped:false
-});
-}
-
-requestAnimationFrame(loop);
+    const timer = setInterval(() => {
+        count--;
+        if (count > 0) {
+            countdownEl.innerText = count;
+        } else if (count === 0) {
+            countdownEl.innerText = "GO !";
+        } else {
+            clearInterval(timer);
+            countdownEl.style.display = "none";
+            startGame();
+        }
+    }, 800);
 }
 
-function gameOver(){
-isPlaying=false;
-music.pause();
+function startGame() {
+    // Créer les premières tuiles
+    for (let i = 0; i < 5; i++) {
+        tiles.push({
+            lane: Math.floor(Math.random() * 4),
+            y: -i * tileHeight,
+            tapped: false
+        });
+    }
 
-document.getElementById("startScreen").style.display="flex";
-document.querySelector("button").innerText="RETRY";
+    music.play().catch(err => console.log("Audio bloqué:", err));
+    isPlaying = true;
+    speed = 5; // Vitesse de départ
+    loop();
+}
+
+// 👆 Input pour iPhone
+window.addEventListener("touchstart", e => {
+    if (!isPlaying) return;
+    const touch = e.touches[0];
+    const x = touch.clientX;
+    const lane = Math.floor(x / laneWidth);
+
+    // Trouver la tuile la plus basse non touchée
+    let activeTiles = tiles.filter(t => !t.tapped).sort((a, b) => b.y - a.y);
+    let target = activeTiles[0];
+
+    if (target && lane === target.lane && target.y + tileHeight > 0) {
+        target.tapped = true;
+        score++;
+        scoreEl.innerText = score;
+        
+        // Gestion des niveaux
+        if (score % 15 === 0) {
+            level++;
+            speed += 0.8;
+            currentNeonColor = getLevelColor(level);
+            levelEl.innerText = "NIVEAU " + level;
+            levelEl.style.color = currentNeonColor;
+        }
+    } else {
+        gameOver();
+    }
+}, { passive: false });
+
+function loop() {
+    if (!isPlaying) return;
+
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Lignes des colonnes
+    ctx.strokeStyle = "#1a1a1a";
+    for (let i = 1; i < 4; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * laneWidth, 0);
+        ctx.lineTo(i * laneWidth, canvas.height);
+        ctx.stroke();
+    }
+
+    // Dessiner les tuiles
+    for (let i = tiles.length - 1; i >= 0; i--) {
+        let t = tiles[i];
+        t.y += speed;
+
+        if (t.tapped) {
+            ctx.fillStyle = "#222";
+        } else {
+            ctx.fillStyle = currentNeonColor;
+            // Effet de lueur (glow)
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = currentNeonColor;
+        }
+
+        ctx.fillRect(t.lane * laneWidth + 2, t.y, laneWidth - 4, tileHeight - 4);
+        ctx.shadowBlur = 0; // Reset pour la perf
+
+        // Vérifier si une tuile est ratée
+        if (!t.tapped && t.y > canvas.height) {
+            gameOver();
+            return;
+        }
+    }
+
+    // Recycler les tuiles
+    if (tiles.length > 0 && tiles[0].y > canvas.height) {
+        tiles.shift();
+        const lastTile = tiles[tiles.length - 1];
+        tiles.push({
+            lane: Math.floor(Math.random() * 4),
+            y: lastTile.y - tileHeight,
+            tapped: false
+        });
+    }
+
+    requestAnimationFrame(loop);
+}
+
+function gameOver() {
+    isPlaying = false;
+    music.pause();
+    
+    // Petit feedback haptique si dispo
+    if (navigator.vibrate) navigator.vibrate(200);
+
+    startScreen.style.display = "flex";
+    document.querySelector("h1").innerText = "SCORE : " + score;
+    document.getElementById("startBtn").innerText = "REESAYER";
 }
 </script>
 
