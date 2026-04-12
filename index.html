@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Neon Tiles</title>
+
+<style>
+body {
+  margin:0;
+  overflow:hidden;
+  background:#000;
+  touch-action:none;
+  font-family:-apple-system, sans-serif;
+}
+
+canvas {
+  position:fixed;
+  width:100vw;
+  height:100vh;
+}
+
+#ui {
+  position:absolute;
+  top:20px;
+  width:100%;
+  text-align:center;
+  color:#ff2d55;
+  font-size:52px;
+  font-weight:bold;
+  z-index:5;
+  text-shadow:0 0 10px #ff2d55;
+}
+
+#startScreen {
+  position:absolute;
+  inset:0;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  background:#000;
+  color:white;
+  z-index:10;
+}
+
+button {
+  padding:14px 36px;
+  font-size:20px;
+  border:none;
+  border-radius:12px;
+  background:#ff2d55;
+  color:white;
+  font-weight:bold;
+}
+</style>
+</head>
+
+<body>
+
+<div id="ui"><span id="score">0</span></div>
+<canvas id="game"></canvas>
+
+<div id="startScreen">
+  <h1>Neon Tiles 🔥</h1>
+  <button id="startBtn">PLAY</button>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let tiles = [];
+let score = 0;
+let speed = 0;
+let laneWidth;
+let isPlaying = false;
+const tileH = 180;
+
+let audioCtx;
+
+// 🎵 AUDIO (iPhone safe)
+function initAudio(){
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+
+function playNote(lane){
+  if(!audioCtx) return;
+
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+
+  const notes = [261.6, 329.6, 392, 523.2];
+
+  osc.frequency.value = notes[lane];
+  osc.type = "sine";
+
+  gain.gain.value = 0.25;
+
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+
+  osc.start();
+  osc.stop(audioCtx.currentTime + 0.12);
+}
+
+// 📱 resize
+function resize(){
+  canvas.width = innerWidth;
+  canvas.height = innerHeight;
+  laneWidth = canvas.width / 4;
+}
+addEventListener("resize", resize);
+resize();
+
+// ▶️ start
+document.getElementById("startBtn").addEventListener("touchstart", e=>{
+  e.preventDefault();
+  initAudio();
+  audioCtx.resume();
+
+  document.getElementById("startScreen").style.display="none";
+  startGame();
+});
+
+// 👆 input
+addEventListener("touchstart", e=>{
+  e.preventDefault();
+  if(!isPlaying) return;
+
+  let x = e.touches[0].clientX;
+  let lane = Math.floor(x / laneWidth);
+
+  let lowest = tiles
+    .filter(t => !t.tapped)
+    .sort((a,b)=> b.y - a.y)[0];
+
+  if(lowest){
+    if(lane === lowest.lane){
+      lowest.tapped = true;
+      score++;
+      document.getElementById("score").innerText = score;
+
+      playNote(lane);
+
+      if(speed === 0) speed = 6;
+      speed += 0.09;
+    } else {
+      gameOver();
+    }
+  }
+});
+
+// 🎮 start game
+function startGame(){
+  tiles = [];
+  score = 0;
+  speed = 0;
+
+  document.getElementById("score").innerText = 0;
+
+  for(let i=0;i<6;i++){
+    tiles.push({
+      lane: Math.floor(Math.random()*4),
+      y: innerHeight - i*tileH,
+      tapped:false
+    });
+  }
+
+  isPlaying = true;
+  loop();
+}
+
+// 🔁 loop
+function loop(){
+  if(!isPlaying) return;
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // lanes
+  for(let i=1;i<4;i++){
+    ctx.beginPath();
+    ctx.moveTo(i*laneWidth,0);
+    ctx.lineTo(i*laneWidth,canvas.height);
+    ctx.strokeStyle="#222";
+    ctx.stroke();
+  }
+
+  // tiles
+  for(let t of tiles){
+    t.y += speed;
+
+    ctx.fillStyle = t.tapped ? "#333" : "#fff";
+    ctx.fillRect(t.lane*laneWidth, t.y, laneWidth, tileH);
+
+    if(!t.tapped && t.y > canvas.height){
+      gameOver();
+      return;
+    }
+  }
+
+  // spawn
+  if(tiles[0].y > canvas.height){
+    tiles.shift();
+    tiles.push({
+      lane: Math.floor(Math.random()*4),
+      y: tiles[tiles.length-1].y - tileH,
+      tapped:false
+    });
+  }
+
+  requestAnimationFrame(loop);
+}
+
+// 💀 game over
+function gameOver(){
+  isPlaying = false;
+  document.getElementById("startScreen").style.display="flex";
+  document.getElementById("startBtn").innerText="RETRY";
+}
+</script>
+
+</body>
+</html>
