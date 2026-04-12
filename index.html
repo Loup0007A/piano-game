@@ -4,31 +4,28 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <title>Neon Tiles Rhythm</title>
-
+    <title>Neon Rhythm Pro</title>
     <style>
-        :root { --neon: #ff2d55; --cyan: #00f2ff; }
+        :root { --neon: #ff2d55; }
         body {
             margin:0; overflow:hidden; background:#000;
             font-family: -apple-system, system-ui;
             touch-action:none; user-select:none; -webkit-user-select:none;
         }
         canvas { position:fixed; width:100vw; height:100vh; }
-
         #ui {
             position:absolute; top:60px; width:100%; text-align:center;
-            color:var(--neon); z-index:10; pointer-events:none;
-            transition: transform 0.1s ease-out; /* Pour l'effet de beat */
+            color:#fff; z-index:10; pointer-events:none;
         }
-        #score { font-size: 50px; font-weight:900; display:block; }
-        #level { font-size: 18px; color:#fff; letter-spacing:2px; }
+        #score { font-size: 50px; font-weight:900; text-shadow: 0 0 10px var(--neon); }
+        #best { font-size: 14px; opacity: 0.8; letter-spacing:1px; }
 
         #startScreen, #countdown {
             position:absolute; inset:0; display:flex; flex-direction:column;
             align-items:center; justify-content:center; background:rgba(0,0,0,0.9);
             color:#fff; z-index:20;
         }
-        #countdown { background:rgba(0,0,0,0.6); font-size:100px; display:none; color:var(--cyan); }
+        #countdown { background:rgba(0,0,0,0.6); font-size:100px; display:none; }
         
         button {
             padding:20px 50px; font-size:24px; border:none; border-radius:50px;
@@ -40,8 +37,8 @@
 <body>
 
 <div id="ui">
-    <span id="level">NIVEAU 1</span>
-    <span id="score">0</span>
+    <div id="best">RECORD: 0</div>
+    <div id="score">0</div>
 </div>
 
 <div id="countdown">3</div>
@@ -49,24 +46,25 @@
 <canvas id="game"></canvas>
 
 <div id="startScreen">
-    <h1 style="margin-bottom:30px">NEON TILES</h1>
-    <button id="startBtn">START</button>
+    <h1 style="margin-bottom:10px">NEON TILES</h1>
+    <p style="margin-bottom:30px; opacity:0.7">Suivez le rythme...</p>
+    <button id="startBtn">JOUER</button>
 </div>
-
-<audio id="music" loop crossorigin="anonymous">
-    <source src="https://cdn.pixabay.com/download/audio/2022/10/25/audio_7a1c1c0c7d.mp3?filename=arcade-music-loop-125071.mp3" type="audio/mpeg">
-</audio>
 
 <script>
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
-const music = document.getElementById("music");
 const scoreEl = document.getElementById("score");
-const levelEl = document.getElementById("level");
-const uiContainer = document.getElementById("ui");
+const bestEl = document.getElementById("best");
 
-let tiles = [], score = 0, level = 1, speed = 5, isPlaying = false;
+let tiles = [], score = 0, isPlaying = false;
+let speed = 4, hue = 0;
 let laneWidth, tileH;
+let audioCtx;
+
+// Charger le meilleur score au démarrage
+let highScore = localStorage.getItem("neonBest") || 0;
+bestEl.innerText = "RECORD: " + highScore;
 
 function resize() {
     canvas.width = window.innerWidth;
@@ -77,23 +75,48 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
-// 📱 iPhone Audio Unlock
-const startBtn = document.getElementById("startBtn");
-startBtn.addEventListener("touchend", (e) => { e.preventDefault(); initGame(); });
-startBtn.addEventListener("click", initGame);
-
-function initGame() {
-    document.getElementById("startScreen").style.display = "none";
-    score = 0; level = 1; speed = 5; tiles = [];
-    scoreEl.innerText = score;
-    levelEl.innerText = "NIVEAU 1";
-    
-    // Reset Musique
-    music.playbackRate = 1.0; 
-    music.currentTime = 0;
-    
-    startCountdown();
+// 🎹 Synthétiseur pour iPhone (Web Audio API)
+function initAudio() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
 }
+
+function playNote(lane) {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    
+    // Fréquences pour les 4 colonnes (gamme de Do majeur : Do, Ré, Mi, Fa)
+    const freqs = [261.63, 293.66, 329.63, 349.23];
+    
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(freqs[lane], audioCtx.currentTime);
+    
+    gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.5);
+    
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.5);
+}
+
+// Interaction START
+const startBtn = document.getElementById("startBtn");
+const handleStart = (e) => {
+    e.preventDefault();
+    initAudio(); // Débloque le son sur iOS
+    if(audioCtx.state === 'suspended') audioCtx.resume();
+    
+    document.getElementById("startScreen").style.display = "none";
+    score = 0; speed = 4; tiles = []; hue = 0;
+    scoreEl.innerText = score;
+    startCountdown();
+};
+startBtn.addEventListener("touchend", handleStart);
+startBtn.addEventListener("click", handleStart);
 
 function startCountdown() {
     const cd = document.getElementById("countdown");
@@ -109,19 +132,17 @@ function startCountdown() {
             clearInterval(timer);
             cd.style.display = "none";
             isPlaying = true;
-            music.play();
-            // Créer premières tuiles
             for(let i=0; i<5; i++) spawnTile(-i * tileH);
             loop();
         }
-    }, 800);
+    }, 700);
 }
 
 function spawnTile(yPos) {
     tiles.push({ lane: Math.floor(Math.random()*4), y: yPos, tapped: false });
 }
 
-// 👆 Input iPhone (Fast Response)
+// 👆 Entrée Tactile
 window.addEventListener("touchstart", e => {
     if(!isPlaying) return;
     const x = e.touches[0].clientX;
@@ -130,23 +151,11 @@ window.addEventListener("touchstart", e => {
     let activeTiles = tiles.filter(t => !t.tapped).sort((a,b) => b.y - a.y);
     let target = activeTiles[0];
 
-    if(target && lane === target.lane && target.y + tileH > 0) {
+    if(target && lane === target.lane && target.y + tileH > -50) {
         target.tapped = true;
         score++;
         scoreEl.innerText = score;
-        
-        // Effet visuel de "beat" sur le clic
-        uiContainer.style.transform = "scale(1.1)";
-        setTimeout(() => uiContainer.style.transform = "scale(1)", 100);
-
-        // SYNC MUSIQUE : Augmente tous les 10 points
-        if(score % 10 === 0) {
-            level++;
-            speed += 0.7;
-            levelEl.innerText = "NIVEAU " + level;
-            // On accélère la musique de 5% par niveau
-            music.playbackRate = Math.min(2, 1 + (level - 1) * 0.05);
-        }
+        playNote(lane); // Joue la note de la colonne
     } else {
         gameOver();
     }
@@ -154,10 +163,19 @@ window.addEventListener("touchstart", e => {
 
 function loop() {
     if(!isPlaying) return;
-    ctx.clearRect(0,0,canvas.width, canvas.height);
+    
+    // Effet de traînée légère (motion blur)
+    ctx.fillStyle = "rgba(0,0,0,0.3)";
+    ctx.fillRect(0,0,canvas.width, canvas.height);
 
-    // Fond & Lignes
-    ctx.strokeStyle = "#222";
+    // Accélération graduelle
+    speed += 0.0015;
+    // Cycle de couleur graduel
+    hue = (hue + 1) % 360;
+    let currentColor = `hsl(${hue}, 100%, 60%)`;
+
+    // Dessin des colonnes
+    ctx.strokeStyle = "rgba(255,255,255,0.05)";
     for(let i=1; i<4; i++) {
         ctx.beginPath(); ctx.moveTo(i*laneWidth, 0); ctx.lineTo(i*laneWidth, canvas.height); ctx.stroke();
     }
@@ -166,15 +184,22 @@ function loop() {
         let t = tiles[i];
         t.y += speed;
 
-        ctx.fillStyle = t.tapped ? "#111" : (score % 20 > 10 ? "#fff" : "#00f2ff");
-        ctx.fillRect(t.lane * laneWidth + 2, t.y, laneWidth - 4, tileH - 4);
+        if(!t.tapped) {
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = currentColor;
+            ctx.fillStyle = currentColor;
+            ctx.fillRect(t.lane * laneWidth + 4, t.y, laneWidth - 8, tileH - 8);
+            ctx.shadowBlur = 0;
+        }
 
-        if(!t.tapped && t.y > canvas.height - 50) {
+        // Si raté (passe le bas de l'écran)
+        if(!t.tapped && t.y > canvas.height) {
             gameOver(); return;
         }
     }
 
-    if(tiles[0].y > canvas.height) {
+    // Recyclage des tuiles
+    if(tiles.length > 0 && tiles[0].y > canvas.height) {
         tiles.shift();
         spawnTile(tiles[tiles.length-1].y - tileH);
     }
@@ -184,10 +209,18 @@ function loop() {
 
 function gameOver() {
     isPlaying = false;
-    music.pause();
+    
+    // Sauvegarde du meilleur score
+    if(score > highScore) {
+        highScore = score;
+        localStorage.setItem("neonBest", highScore);
+        bestEl.innerText = "RECORD: " + highScore;
+    }
+
     document.getElementById("startScreen").style.display = "flex";
     document.querySelector("h1").innerText = "SCORE : " + score;
-    document.getElementById("startBtn").innerText = "RETRY";
+    document.querySelector("p").innerText = "Retente ta chance !";
+    document.getElementById("startBtn").innerText = "REESAYER";
 }
 </script>
 </body>
